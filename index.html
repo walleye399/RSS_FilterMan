@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none';connect-src https://api.github.com;script-src 'unsafe-inline';style-src 'unsafe-inline';base-uri 'none';form-action 'none'">
+<title>フィルタ管理</title>
+<style>
+:root{--bg:#fbfaf7;--fg:#1d2433;--mut:#6b7385;--bd:#d9d6cc;--ac:#1f5fbf;--bad:#b3261e;--chip:#ecebe4;--sf:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#14171f;--fg:#e4e7ee;--mut:#8f97a8;--bd:#2c3242;--ac:#7aa7f0;--bad:#f2837b;--chip:#232838;--sf:#1a1e29}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 "Hiragino Sans","Yu Gothic UI","Noto Sans JP",sans-serif}
+main{max-width:860px;margin:0 auto;padding:12px 14px 80px}
+header{display:flex;gap:8px;align-items:center;flex-wrap:wrap;position:sticky;top:0;background:var(--bg);padding:10px 0;border-bottom:1px solid var(--bd);z-index:5}
+header h1{font-size:17px;margin:0 auto 0 0}
+button,input,textarea,select{font:inherit;color:inherit;background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:5px 10px}
+button{cursor:pointer}button.p{background:var(--ac);border-color:var(--ac);color:#fff}button:disabled{opacity:.4;cursor:default}
+button.x{border:0;background:none;color:var(--bad);padding:0 4px}
+:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+nav{display:flex;gap:6px;margin:12px 0}nav button[aria-pressed=true]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.row{display:flex;gap:8px;margin:8px 0}.row>input{flex:1;min-width:0}
+details{border:1px solid var(--bd);border-radius:8px;margin:6px 0;background:var(--sf)}
+summary{padding:8px 12px;cursor:pointer;display:flex;gap:8px;align-items:baseline}
+summary b{flex:1;overflow-wrap:anywhere}small,.m{color:var(--mut);font-size:13px}
+.bd{padding:4px 12px 12px;border-top:1px solid var(--bd)}.off summary b{text-decoration:line-through;color:var(--mut)}
+.blk{margin:10px 0}.chips{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+.chip{background:var(--chip);border-radius:5px;padding:1px 4px 1px 8px;font-size:13px;cursor:pointer;overflow-wrap:anywhere}
+.er{color:var(--bad)}textarea{width:100%;height:56px}
+#login{max-width:420px;margin:40px auto}#login label{display:block;margin:10px 0 2px;font-size:13px}#login input[type=text],#login input[type=password]{width:100%}
+.fr{display:flex;gap:6px;align-items:center;margin:4px 0}.fr input[type=text]{flex:1;min-width:0}
+</style></head><body><main>
+<div id="login"><h1>フィルタ管理</h1>
+<label>GitHubユーザー名</label><input id="u" type="text" autocomplete="username">
+<label>PAT（Contents: Read and write）</label><input id="t" type="password" autocomplete="current-password">
+<label>リポジトリ（owner/repo）</label><input id="r" type="text" placeholder="user/tbmigrate">
+<label><input id="rm" type="checkbox"> このブラウザに保存する</label>
+<p><button class="p" id="go">ログイン</button> <span id="le" class="er"></span></p></div>
+<div id="app" hidden>
+<header><h1>フィルタ管理</h1><span id="st" class="m"></span><button id="sv" class="p" disabled>保存</button><button id="lo">ログアウト</button></header>
+<nav id="tabs"></nav><div id="view"></div></div>
+</main>
+<script>
+const RX='filtaquilla@mesquilla.com#',FILES={a:'rules/rules_a.json',b:'rules/rules_b.json',feeds:'feeds.txt'};
+const DEST={a:{def:'X_Excluded',map:{}},b:{def:'X_Excluded',map:{Sent:'B_ExcludedBlogs'}}};
+const $=s=>document.querySelector(s);
+const h=(t,a={},...k)=>{const e=document.createElement(t);for(const[x,v]of Object.entries(a))x==='on'?Object.entries(v).forEach(([n,f])=>e.addEventListener(n,f)):x==='text'?e.textContent=v:e.setAttribute(x,v);k.flat().forEach(c=>c!=null&&e.append(c));return e};
+const S={D:{},cur:'a'};
+const isRx=t=>t.field.startsWith(RX);
+const fj=t=>isRx(t)?(t.field.endsWith('subjectRegex')?'件名':'本文')+'(正規表現)':{subject:'件名',from:'差出人',body:'本文','content-base':'記事URL'}[t.field];
+const oj=t=>isRx(t)?'に一致':({contains:'に含む','begins with':'で始まる','ends with':'で終わる',is:'と一致'}[t.op]||t.op);
+const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+const dec=b=>new TextDecoder().decode(Uint8Array.from(atob(b.replace(/\n/g,'')),c=>c.charCodeAt(0)));
+const enc=s=>{const u=new TextEncoder().encode(s);let b='';for(let i=0;i<u.length;i+=8192)b+=String.fromCharCode(...u.subarray(i,i+8192));return btoa(b)};
+async function api(p,o={}){const r=await fetch('https://api.github.com'+p,{...o,headers:{Authorization:'Bearer '+S.tok,Accept:'application/vnd.github+json',...o.headers}});if(!r.ok)throw new Error(r.status+' '+(await r.text()).slice(0,160));return r}
+async function load(path){const j=await(await api(`/repos/${S.repo}/contents/${path}?ref=${S.br}`)).json();
+ const text=j.content?dec(j.content):await(await api(`/repos/${S.repo}/contents/${path}?ref=${S.br}`,{headers:{Accept:'application/vnd.github.raw+json'}})).text();return{sha:j.sha,text}}
+const ser=(k,w)=>k==='feeds'?w.join('\n'):JSON.stringify(w,null,1);
+const dirty=k=>S.D[k]&&ser(k,S.D[k].work)!==S.D[k].text;
+async function loadAll(){for(const k of Object.keys(FILES)){const f=await load(FILES[k]);S.D[k]={sha:f.sha,text:f.text,work:k==='feeds'?f.text.split('\n'):JSON.parse(f.text)}}}
+async function login(){try{S.user=$('#u').value.trim();S.tok=$('#t').value.trim();S.repo=$('#r').value.trim();
+ const me=await(await api('/user')).json();if(me.login.toLowerCase()!==S.user.toLowerCase())throw Error('ユーザー名がトークンの持ち主と一致しません');
+ const rp=await(await api('/repos/'+S.repo)).json();if(rp.permissions&&!rp.permissions.push)throw Error('このリポジトリへの書き込み権限がありません');S.br=rp.default_branch;
+ const c=JSON.stringify({u:S.user,t:S.tok,r:S.repo});sessionStorage.tb=c;$('#rm').checked?localStorage.tb=c:localStorage.removeItem('tb');
+ await loadAll();$('#login').hidden=true;$('#app').hidden=false;tabs();render()}catch(e){$('#le').textContent=e.message}}
+function tabs(){const n=$('#tabs');n.replaceChildren(...Object.keys(FILES).map(k=>h('button',{'aria-pressed':k===S.cur,on:{click:()=>{S.cur=k;tabs();render()}},text:k==='feeds'?'RSSフィード':'フィルタ '+k})));status()}
+function status(){const d=Object.keys(S.D).filter(dirty);$('#sv').disabled=!d.length;$('#st').textContent=d.length?'未保存: '+d.join(', '):'保存済み'}
+window.onbeforeunload=e=>Object.keys(S.D).some(dirty)?(e.preventDefault(),''):undefined;
+function blocks(r){const b=[];r.terms.forEach((t,i)=>{const p=b[b.length-1];if(!isRx(t)&&r.match==='any'&&p&&!p.rx&&p.t.field===t.field&&p.t.op===t.op)p.idx.push(i);else b.push({rx:isRx(t),t,idx:[i]})});return b}
+const kws=(r,b)=>b.rx?r.terms[b.idx[0]].value.split('|'):b.idx.map(i=>r.terms[i].value);
+function setKws(r,b,k){if(b.rx)r.terms[b.idx[0]].value=k.join('|');else r.terms.splice(b.idx[0],b.idx.length,...k.map(v=>({...b.t,value:v})))}
+const count=r=>blocks(r).reduce((n,b)=>n+kws(r,b).length,0);
+const dest=(k,r)=>r.result==='keep'?'残す':(DEST[k].map[r.label]||DEST[k].def);
+function render(){status();const v=$('#view');v.replaceChildren();S.cur==='feeds'?feeds(v):rules(v)}
+function rules(v){const k=S.cur,w=S.D[k].work,list=h('div'),res=h('div',{class:'m'});
+ const q=h('input',{type:'text',placeholder:'キーワードを検索（全ルール横断）'}),nf=h('input',{type:'text',placeholder:'ルール名で絞り込み'});
+ const cards=w.map(r=>card(k,r,w));
+ const draw=()=>{const f=nf.value.toLowerCase();list.replaceChildren(...cards.filter((c,i)=>w[i].name.toLowerCase().includes(f)))};
+ q.oninput=()=>{const s=q.value.toLowerCase();res.replaceChildren();if(!s)return;let n=0;w.forEach((r,i)=>r.terms.forEach(t=>{if(n<40)t.value.split('|').forEach(x=>{if(n<40&&x.toLowerCase().includes(s)){n++;res.append(h('div',{},h('a',{href:'#',on:{click:e=>{e.preventDefault();nf.value='';draw();cards[i].open=true;cards[i].scrollIntoView()}},text:r.name}),h('span',{text:'  '+x})))}})}));if(!n)res.textContent='該当なし'};
+ nf.oninput=draw;
+ const add=h('button',{text:'ルールを追加',on:{click:()=>{const n=prompt('ルール名');if(!n)return;const ks=(prompt('件名キーワード（| で区切る）')||'').split('|').map(s=>s.trim()).filter(Boolean);if(!ks.length)return;
+  const lab=(w.find(r=>r.result==='reject'&&!DEST[k].map[r.label])||{}).label||'興味なし（単語）';const nr={name:n,enabled:true,match:'any',terms:[{field:RX+'subjectRegex',op:'matches',value:ks.map(esc).join('|')}],result:'reject',label:lab};
+  const i=w.findIndex(r=>r.match==='always');w.splice(i<0?w.length:i,0,nr);render()}}});
+ v.append(h('div',{class:'row'},q),res,h('div',{class:'row'},nf,add),list);draw()}
+function card(k,r,w){const d=h('details',{class:r.enabled?'':'off'}),sm=h('summary');let built=false;
+ const head=()=>{sm.replaceChildren(h('b',{text:r.name}),h('small',{text:`${r.match==='always'?'常に':r.match==='all'?'AND':'OR'} / ${count(r)}語 → ${dest(k,r)}`}))};head();
+ const body=h('div',{class:'bd'});
+ const build=()=>{body.replaceChildren();const top=h('div',{class:'row'},
+  h('label',{},h('input',{type:'checkbox',...(r.enabled?{checked:''}:{}),on:{change:e=>{r.enabled=e.target.checked;d.className=r.enabled?'':'off';status()}}}),' 有効'),
+  h('button',{class:'x',text:'ルールを削除',on:{click:()=>{if(confirm(`「${r.name}」を削除しますか？`)){w.splice(w.indexOf(r),1);render()}}}}));body.append(top);
+  blocks(r).forEach(b=>body.append(blk(r,b,build,head)))};
+ d.append(sm,body);d.addEventListener('toggle',()=>{if(d.open&&!built){built=true;build()}});return d}
+function blk(r,b,rebuild,head){const box=h('div',{class:'blk'}),all=kws(r,b);let lim=100,flt='';
+ const t=b.t,msg=h('div',{class:'er'});
+ const save=a=>{if(b.rx&&a.some(x=>!x)){msg.textContent='空のキーワードは追加できません';return}setKws(r,b,a);head();status();rebuild()};
+ box.append(h('div',{class:'m',text:`${fj(t)}${oj(t)}（${all.length}語）`}));
+ if(all.length>30)box.append(h('input',{type:'text',placeholder:'この条件内を絞り込み',on:{input:e=>{flt=e.target.value.toLowerCase();draw()}}}));
+ const ch=h('div',{class:'chips'});box.append(ch);
+ const draw=()=>{const cur=kws(r,b);const shown=cur.map((x,i)=>[x,i]).filter(([x])=>x.toLowerCase().includes(flt));ch.replaceChildren(...shown.slice(0,lim).map(([x,i])=>h('span',{class:'chip',title:'クリックで編集'},h('span',{text:x,on:{click:()=>{const n=prompt('変更（空欄で削除）',x);if(n===null)return;const c=kws(r,b);const p=n.split('|').map(s=>s.trim()).filter(Boolean);c.splice(i,1,...p);save(c)}}}),h('button',{class:'x',text:'×','aria-label':'削除',on:{click:()=>{const c=kws(r,b);c.splice(i,1);if(!c.length){alert('最後の1語です。ルールごと削除してください');return}save(c)}}}))));
+  if(shown.length>lim)ch.append(h('button',{text:`さらに表示（残り${shown.length-lim}）`,on:{click:()=>{lim+=150;draw()}}}))};draw();
+ const ta=h('textarea',{placeholder:'追加するキーワード（改行または | 区切り）'}),raw=h('input',{type:'checkbox'});
+ box.append(ta,h('div',{class:'row'},h('label',{class:'m'},raw,' 正規表現のまま'),h('button',{text:'追加',on:{click:()=>{const cur=kws(r,b),have=new Set(cur.map(x=>x.toLowerCase()));let n=0;
+  ta.value.split(/[\n|]/).map(s=>s.trim()).filter(Boolean).forEach(x=>{const v=b.rx&&!raw.checked?esc(x):x;if(!have.has(v.toLowerCase())){have.add(v.toLowerCase());cur.push(v);n++}});if(n)save(cur);else msg.textContent='追加なし（空欄または重複）'}}})),msg);return box}
+function feeds(v){const w=S.D.feeds.work,list=h('div'),inp=h('input',{type:'text',placeholder:'https://example.com/feed'});
+ const info=l=>{const m=/^(\s*#\s*)?(https?:\/\/\S+)\s*$/.exec(l);return m?{on:!m[1],url:m[2]}:null};
+ w.forEach((l,i)=>{const f=info(l);if(!f){if(l.trim())list.append(h('div',{class:'m',text:l}));return}
+  list.append(h('div',{class:'fr'},h('input',{type:'checkbox',title:'有効',...(f.on?{checked:''}:{}),on:{change:e=>{w[i]=(e.target.checked?'':'# ')+f.url;render()}}}),
+   h('input',{type:'text',value:f.url,on:{change:e=>{const u=e.target.value.trim();if(!/^https?:\/\/\S+$/.test(u)){alert('URLを確認してください');e.target.value=f.url;return}w[i]=(f.on?'':'# ')+u;status()}}}),
+   h('button',{class:'x',text:'削除',on:{click:()=>{w.splice(i,1);render()}}})))});
+ const add=h('button',{text:'追加',on:{click:()=>{const u=inp.value.trim();if(!/^https?:\/\/\S+$/.test(u))return alert('URLを確認してください');if(w.some(l=>(info(l)||{}).url===u))return alert('登録済みです');let i=w.length;while(i>0&&!w[i-1].trim())i--;w.splice(i,0,u);render()}}});
+ v.append(h('p',{class:'m',text:'チェックを外すと「# 」でコメントアウトされます（取得されません）。'}),h('div',{class:'row'},inp,add),list)}
+function check(){const er=[];for(const k of['a','b'])S.D[k].work.forEach(r=>r.terms.forEach(t=>{if(!isRx(t))return;if(t.value.split('|').some(x=>!x))er.push(`${k}/${r.name}: 空のキーワード（全件一致になります）`);try{new RegExp(t.value)}catch(e){er.push(`${k}/${r.name}: 正規表現エラー`)}}));return er}
+function summary(k){const d=S.D[k];if(k==='feeds'){const a=new Set(d.text.split('\n')),b=new Set(d.work);return`+${[...b].filter(x=>!a.has(x)).length} −${[...a].filter(x=>!b.has(x)).length}`}
+ const m=w=>{const s=new Map();w.forEach(r=>r.terms.forEach(t=>t.value.split('|').forEach(x=>s.set(r.name+'\0'+x,1))));return s},o=m(JSON.parse(d.text)),n=m(d.work);return`+${[...n.keys()].filter(x=>!o.has(x)).length}語 −${[...o.keys()].filter(x=>!n.has(x)).length}語`}
+$('#sv').onclick=async()=>{const er=check();if(er.length)return alert(er.slice(0,5).join('\n'));const ks=Object.keys(S.D).filter(dirty);if(!confirm('保存します:\n'+ks.map(k=>`${FILES[k]}  ${summary(k)}`).join('\n')))return;
+ try{for(const k of ks){const d=S.D[k],text=ser(k,d.work);const j=await(await api(`/repos/${S.repo}/contents/${FILES[k]}`,{method:'PUT',body:JSON.stringify({message:`フィルタ更新(UI): ${FILES[k]} ${summary(k)}`,content:enc(text),sha:d.sha,branch:S.br})})).json();d.sha=j.content.sha;d.text=text}status()}
+ catch(e){alert('保存に失敗: '+e.message+'\n他で更新された場合は、再読込してからやり直してください。')}};
+$('#lo').onclick=()=>{sessionStorage.removeItem('tb');localStorage.removeItem('tb');location.reload()};
+$('#go').onclick=login;
+try{const c=JSON.parse(sessionStorage.tb||localStorage.tb||'null');if(c){$('#u').value=c.u;$('#t').value=c.t;$('#r').value=c.r;$('#rm').checked=!!localStorage.tb;login()}}catch(e){}
+</script></body></html>
