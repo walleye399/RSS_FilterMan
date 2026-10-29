@@ -86,14 +86,14 @@ function card(k,r,w){const d=h('details',{class:r.enabled?'':'off'}),sm=h('summa
   h('button',{class:'x',text:'ルールを削除',on:{click:()=>{if(confirm(`「${r.name}」を削除しますか？`)){w.splice(w.indexOf(r),1);render()}}}}));body.append(top);
   blocks(r).forEach(b=>body.append(blk(r,b,build,head)))};
  d.append(sm,body);d.addEventListener('toggle',()=>{if(d.open&&!built){built=true;build()}});return d}
-function blk(r,b,rebuild,head){const box=h('div',{class:'blk'}),all=kws(r,b);let lim=100,flt='';
+function blk(r,b,rebuild,head){const box=h('div',{class:'blk'}),all=kws(r,b);let lim=100,flt='',end=false;
  const t=b.t,msg=h('div',{class:'er'});
  const save=a=>{if(b.rx&&a.some(x=>!x)){msg.textContent='空のキーワードは追加できません';return}setKws(r,b,a);head();status();rebuild()};
  box.append(h('div',{class:'m',text:`${fj(t)}${oj(t)}（${all.length}語）`}));
  if(all.length>30)box.append(h('input',{type:'text',placeholder:'この条件内を絞り込み',on:{input:e=>{flt=e.target.value.toLowerCase();draw()}}}));
  const ch=h('div',{class:'chips'});box.append(ch);
- const draw=()=>{const cur=kws(r,b);const shown=cur.map((x,i)=>[x,i]).filter(([x])=>x.toLowerCase().includes(flt));ch.replaceChildren(...shown.slice(0,lim).map(([x,i])=>h('span',{class:'chip',title:'クリックで編集'},h('span',{text:x,on:{click:()=>{const n=prompt('変更（空欄で削除）',x);if(n===null)return;const c=kws(r,b);const p=n.split('|').map(s=>s.trim()).filter(Boolean);c.splice(i,1,...p);save(c)}}}),h('button',{class:'x',text:'×','aria-label':'削除',on:{click:()=>{const c=kws(r,b);c.splice(i,1);if(!c.length){alert('最後の1語です。ルールごと削除してください');return}save(c)}}}))));
-  if(shown.length>lim)ch.append(h('button',{text:`さらに表示（残り${shown.length-lim}）`,on:{click:()=>{lim+=150;draw()}}}))};draw();
+ const draw=()=>{const cur=kws(r,b);const shown=cur.map((x,i)=>[x,i]).filter(([x])=>x.toLowerCase().includes(flt));ch.replaceChildren(...(end?shown.slice(-lim):shown.slice(0,lim)).map(([x,i])=>h('span',{class:'chip',title:'クリックで編集'},h('span',{text:x,on:{click:()=>{const n=prompt('変更（空欄で削除）',x);if(n===null)return;const c=kws(r,b);const p=n.split('|').map(s=>s.trim()).filter(Boolean);c.splice(i,1,...p);save(c)}}}),h('button',{class:'x',text:'×','aria-label':'削除',on:{click:()=>{const c=kws(r,b);c.splice(i,1);if(!c.length){alert('最後の1語です。ルールごと削除してください');return}save(c)}}}))));
+  if(shown.length>lim){const bs=[h('button',{text:`さらに表示（残り${shown.length-lim}）`,on:{click:()=>{lim+=150;draw()}}}),h('button',{text:end?'先頭を表示':'最後を表示',on:{click:()=>{end=!end;draw();(end?ch.lastElementChild:ch.firstElementChild).scrollIntoView({block:'nearest'})}}})];end?ch.prepend(...bs):ch.append(...bs)}};draw();
  const ta=h('textarea',{placeholder:'追加するキーワード（改行または | 区切り）'}),raw=h('input',{type:'checkbox'});
  box.append(ta,h('div',{class:'row'},h('label',{class:'m'},raw,' 正規表現のまま'),h('button',{text:'追加',on:{click:()=>{const cur=kws(r,b),have=new Set(cur.map(x=>x.toLowerCase()));let n=0;
   ta.value.split(/[\n|]/).map(s=>s.trim()).filter(Boolean).forEach(x=>{const v=b.rx&&!raw.checked?esc(x):x;if(!have.has(v.toLowerCase())){have.add(v.toLowerCase());cur.push(v);n++}});if(n)save(cur);else msg.textContent='追加なし（空欄または重複）'}}})),msg);return box}
@@ -113,5 +113,6 @@ $('#sv').onclick=async()=>{const er=check();if(er.length)return alert(er.slice(0
  catch(e){alert('保存に失敗: '+e.message+'\n他で更新された場合は、再読込してからやり直してください。')}};
 $('#lo').onclick=()=>{sessionStorage.removeItem('tb');localStorage.removeItem('tb');location.reload()};
 $('#go').onclick=login;
-try{const c=JSON.parse(sessionStorage.tb||localStorage.tb||'null');if(c){$('#u').value=c.u;$('#t').value=c.t;$('#r').value=c.r;$('#rm').checked=!!localStorage.tb;login()}}catch(e){}
+const qp=new URLSearchParams(location.search),ur=(qp.get('repo')||[...qp.values()][0]||'').trim();
+try{const c=JSON.parse(sessionStorage.tb||localStorage.tb||'null');if(ur)$('#r').value=ur;if(c){$('#u').value=c.u;$('#t').value=c.t;if(!ur)$('#r').value=c.r;$('#rm').checked=!!localStorage.tb;login()}}catch(e){}
 </script></body></html>
