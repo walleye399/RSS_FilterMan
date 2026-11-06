@@ -98,13 +98,14 @@ function blk(r,b,rebuild,head){const box=h('div',{class:'blk'}),all=kws(r,b);let
  box.append(ta,h('div',{class:'row'},h('label',{class:'m'},raw,' 正規表現のまま'),h('button',{text:'追加',on:{click:()=>{const cur=kws(r,b),have=new Set(cur.map(x=>x.toLowerCase()));let n=0;
   ta.value.split(/[\n|]/).map(s=>s.trim()).filter(Boolean).forEach(x=>{const v=b.rx&&!raw.checked?esc(x):x;if(!have.has(v.toLowerCase())){have.add(v.toLowerCase());cur.push(v);n++}});if(n)save(cur);else msg.textContent='追加なし（空欄または重複）'}}})),msg);return box}
 function feeds(v){const w=S.D.feeds.work,list=h('div'),inp=h('input',{type:'text',placeholder:'https://example.com/feed'});
- const info=l=>{const m=/^(\s*#\s*)?(https?:\/\/\S+)\s*$/.exec(l);return m?{on:!m[1],url:m[2]}:null};
+ const info=l=>{const m=/^(\s*#\s*)?(https?:\/\/\S+)(\s+@browser)?\s*$/.exec(l);return m?{on:!m[1],url:m[2],br:!!m[3]}:null},mk=(on,u,br)=>(on?'':'# ')+u+(br?' @browser':'');
  w.forEach((l,i)=>{const f=info(l);if(!f){if(l.trim())list.append(h('div',{class:'m',text:l}));return}
-  list.append(h('div',{class:'fr'},h('input',{type:'checkbox',title:'有効',...(f.on?{checked:''}:{}),on:{change:e=>{w[i]=(e.target.checked?'':'# ')+f.url;render()}}}),
-   h('input',{type:'text',value:f.url,on:{change:e=>{const u=e.target.value.trim();if(!/^https?:\/\/\S+$/.test(u)){alert('URLを確認してください');e.target.value=f.url;return}w[i]=(f.on?'':'# ')+u;status()}}}),
+  list.append(h('div',{class:'fr'},h('input',{type:'checkbox',title:'有効',...(f.on?{checked:''}:{}),on:{change:e=>{w[i]=mk(e.target.checked,f.url,f.br);render()}}}),
+   h('input',{type:'text',value:f.url,on:{change:e=>{const u=e.target.value.trim();if(!/^https?:\/\/\S+$/.test(u)){alert('URLを確認してください');e.target.value=f.url;return}w[i]=mk(f.on,u,f.br);status()}}}),
+   h('label',{class:'m',title:'403やbot判定で取得できない・遅いサイト向け。ブラウザに近い通信で取得します'},h('input',{type:'checkbox',...(f.br?{checked:''}:{}),on:{change:e=>{w[i]=mk(f.on,f.url,e.target.checked);render()}}}),'ブラウザ風'),
    h('button',{class:'x',text:'削除',on:{click:()=>{w.splice(i,1);render()}}})))});
  const add=h('button',{text:'追加',on:{click:()=>{const u=inp.value.trim();if(!/^https?:\/\/\S+$/.test(u))return alert('URLを確認してください');if(w.some(l=>(info(l)||{}).url===u))return alert('登録済みです');let i=w.length;while(i>0&&!w[i-1].trim())i--;w.splice(i,0,u);render()}}});
- v.append(h('p',{class:'m',text:'チェックを外すと「# 」でコメントアウトされます（取得されません）。'}),h('div',{class:'row'},inp,add),list)}
+ v.append(h('p',{class:'m',text:'左のチェックを外すと「# 」でコメントアウトされます（取得されません）。「ブラウザ風」にチェックすると、行末に「@browser」が付き、ブラウザに近い通信で取得します。'}),h('div',{class:'row'},inp,add),list)}
 function check(){const er=[];for(const k of['a','b'])S.D[k].work.forEach(r=>r.terms.forEach(t=>{if(!isRx(t))return;if(t.value.split('|').some(x=>!x))er.push(`${k}/${r.name}: 空のキーワード（全件一致になります）`);try{new RegExp(t.value)}catch(e){er.push(`${k}/${r.name}: 正規表現エラー`)}}));return er}
 function summary(k){const d=S.D[k];if(k==='feeds'){const a=new Set(d.text.split('\n')),b=new Set(d.work);return`+${[...b].filter(x=>!a.has(x)).length} −${[...a].filter(x=>!b.has(x)).length}`}
  const m=w=>{const s=new Map();w.forEach(r=>r.terms.forEach(t=>t.value.split('|').forEach(x=>s.set(r.name+'\0'+x,1))));return s},o=m(JSON.parse(d.text)),n=m(d.work);return`+${[...n.keys()].filter(x=>!o.has(x)).length}語 −${[...o.keys()].filter(x=>!n.has(x)).length}語`}
