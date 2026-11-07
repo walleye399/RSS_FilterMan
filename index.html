@@ -24,6 +24,7 @@ summary b{flex:1;overflow-wrap:anywhere}small,.m{color:var(--mut);font-size:13px
 .chip{background:var(--chip);border-radius:5px;padding:1px 4px 1px 8px;font-size:13px;cursor:pointer;overflow-wrap:anywhere}
 .er{color:var(--bad)}textarea{width:100%;height:56px}
 #login{max-width:420px;margin:40px auto}#login label{display:block;margin:10px 0 2px;font-size:13px}#login input[type=text],#login input[type=password]{width:100%}
+.hd{cursor:grab;touch-action:none;user-select:none;padding:0 6px;font-size:18px;line-height:1;color:var(--mut)}.drag{opacity:.45}.dl{height:3px;background:var(--ac);border-radius:2px;margin:3px 0}
 .fr{display:flex;gap:6px;align-items:center;margin:4px 0}.fr input[type=text]{flex:1;min-width:0}
 </style></head><body><main>
 <div id="login"><h1>フィルタ管理</h1>
@@ -75,7 +76,19 @@ const dest=(k,r)=>r.result==='keep'?'残す':(DEST[k].map[r.label]||DEST[k].def)
 function render(){status();const v=$('#view');v.replaceChildren();S.cur==='feeds'?feeds(v):rules(v)}
 function rules(v){const k=S.cur,w=S.D[k].work,list=h('div'),res=h('div',{class:'m'});
  const q=h('input',{type:'text',placeholder:'キーワードを検索（全ルール横断）'}),nf=h('input',{type:'text',placeholder:'ルール名で絞り込み'});
- const cards=w.map(r=>card(k,r,w));
+ const dnd=(e,el,r)=>{e.preventDefault();const hd=e.currentTarget,dl=h('div',{class:'dl'});hd.setPointerCapture(e.pointerId);el.classList.add('drag');
+  let before=null,y=e.clientY,moved=false;
+  const place=()=>{const cs=[...list.children].filter(c=>c!==dl&&c!==el&&c._r);let b=cs.find(c=>y<c.getBoundingClientRect().top+c.getBoundingClientRect().height/2)||null;
+   const al=cs.find(c=>c._r.match==='always');if(al&&(!b||cs.indexOf(b)>cs.indexOf(al)))b=al;before=b;list.insertBefore(dl,b)};
+  const tm=setInterval(()=>{if(!moved)return;if(y<70)scrollBy(0,-14);else if(y>innerHeight-70)scrollBy(0,14);place()},30);
+  const mv=ev=>{y=ev.clientY;moved=true;place()};
+  const end=go=>{clearInterval(tm);hd.removeEventListener('pointermove',mv);hd.removeEventListener('pointerup',up);hd.removeEventListener('pointercancel',cn);dl.remove();el.classList.remove('drag');
+   if(!go||!moved)return;const w2=w.filter(x=>x!==r);let at;
+   if(before)at=w2.indexOf(before._r);else{const vis=[...list.children].filter(c=>c._r&&c!==el),last=vis[vis.length-1];at=last?w2.indexOf(last._r)+1:w2.length}
+   const ai=w2.findIndex(x=>x.match==='always');if(ai>=0&&at>ai)at=ai;w.splice(0,w.length,...w2.slice(0,at),r,...w2.slice(at));render()};
+  const up=()=>end(true),cn=()=>end(false);
+  hd.addEventListener('pointermove',mv);hd.addEventListener('pointerup',up);hd.addEventListener('pointercancel',cn)};
+ const cards=w.map(r=>card(k,r,w,dnd));
  const draw=()=>{const f=nf.value.toLowerCase();list.replaceChildren(...cards.filter((c,i)=>w[i].name.toLowerCase().includes(f)))};
  q.oninput=()=>{const s=q.value.toLowerCase();res.replaceChildren();if(!s)return;let n=0;w.forEach((r,i)=>r.terms.forEach(t=>{if(n<40)t.value.split('|').forEach(x=>{if(n<40&&x.toLowerCase().includes(s)){n++;res.append(h('div',{},h('a',{href:'#',on:{click:e=>{e.preventDefault();nf.value='';draw();cards[i].open=true;cards[i].scrollIntoView()}},text:r.name}),h('span',{text:'  '+x})))}})}));if(!n)res.textContent='該当なし'};
  nf.oninput=draw;
@@ -86,8 +99,9 @@ function rules(v){const k=S.cur,w=S.D[k].work,list=h('div'),res=h('div',{class:'
   const nr={name:nm.value.trim(),enabled:true,match:mt.value,terms,result:'reject',label:dests(k)[+ds.value][1]};
   const i=w.findIndex(r=>r.match==='always');w.splice(i<0?w.length:i,0,nr);render()}}}))));
  v.append(h('div',{class:'row'},q),res,h('div',{class:'row'},nf),add,list);draw()}
-function card(k,r,w){const d=h('details',{class:r.enabled?'':'off'}),sm=h('summary');let built=false;
- const head=()=>{sm.replaceChildren(h('b',{text:r.name}),h('small',{text:`${r.match==='always'?'常に':r.match==='all'?'AND':'OR'} / ${count(r)}語 → ${dest(k,r)}`}))};head();
+function card(k,r,w,dnd){const d=h('details',{class:r.enabled?'':'off'}),sm=h('summary');let built=false;d._r=r;
+ const hd=h('span',{class:'hd',title:'ドラッグで並べ替え'},'≡');hd.onpointerdown=e=>dnd(e,d,r);hd.onclick=e=>{e.preventDefault();e.stopPropagation()};
+ const head=()=>{sm.replaceChildren(...(r.match==='always'?[]:[hd]),h('b',{text:r.name}),h('small',{text:`${r.match==='always'?'常に':r.match==='all'?'AND':'OR'} / ${count(r)}語 → ${dest(k,r)}`}))};head();
  const body=h('div',{class:'bd'});
  const ctl=()=>{const i=w.indexOf(r),al=r.match==='always',mv=d=>{const j=i+d,t=w[j];if(!t||t.match==='always')return;w.splice(i,1);w.splice(j,0,r);render()};
   const cur=dest(k,r),sel=h('select',{},dests(k).map(x=>h('option',{value:x[1],text:'→ '+x[0],...(x[0]===cur?{selected:''}:{})})));
