@@ -46,6 +46,11 @@ const isRx=t=>t.field.startsWith(RX);
 const fj=t=>isRx(t)?(t.field.endsWith('subjectRegex')?'件名':'本文')+'(正規表現)':{subject:'件名',from:'差出人',body:'本文','content-base':'記事URL'}[t.field];
 const oj=t=>isRx(t)?'に一致':({contains:'に含む','begins with':'で始まる','ends with':'で終わる',is:'と一致'}[t.op]||t.op);
 const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+const OPTS=[['件名(正規表現)に一致',RX+'subjectRegex','matches'],['本文(正規表現)に一致',RX+'bodyRegex','matches'],['件名に含む','subject','contains'],['件名で始まる','subject','begins with'],['件名で終わる','subject','ends with'],['件名と一致','subject','is'],['差出人に含む','from','contains'],['本文に含む','body','contains'],['記事URLに含む','content-base','contains']];
+const mkT=(o,x)=>{const[,f,op]=OPTS[o];if(f.startsWith(RX)){const ks=x.split(/[\n|]/).map(t=>t.trim()).filter(Boolean);return ks.length?[{field:f,op,value:ks.map(esc).join('|')}]:[]}x=x.trim();return x?[{field:f,op,value:x}]:[]};
+const defLabel=k=>(S.D[k].work.find(r=>r.result==='reject'&&!DEST[k].map[r.label])||{}).label||'興味なし（単語）';
+const dests=k=>[[DEST[k].def,defLabel(k)],...Object.entries(DEST[k].map).map(([l,f])=>[f,l])];
+const condRow=()=>{const sel=h('select',{},OPTS.map((o,i)=>h('option',{value:i,text:o[0]}))),inp=h('input',{type:'text',placeholder:'キーワード（正規表現の項目は | 区切りで複数）'});return{el:h('div',{class:'fr'},sel,inp),get:()=>mkT(+sel.value,inp.value)}};
 const dec=b=>new TextDecoder().decode(Uint8Array.from(atob(b.replace(/\n/g,'')),c=>c.charCodeAt(0)));
 const enc=s=>{const u=new TextEncoder().encode(s);let b='';for(let i=0;i<u.length;i+=8192)b+=String.fromCharCode(...u.subarray(i,i+8192));return btoa(b)};
 async function api(p,o={}){const r=await fetch('https://api.github.com'+p,{...o,headers:{Authorization:'Bearer '+S.tok,Accept:'application/vnd.github+json',...o.headers}});if(!r.ok)throw new Error(r.status+' '+(await r.text()).slice(0,160));return r}
@@ -74,17 +79,25 @@ function rules(v){const k=S.cur,w=S.D[k].work,list=h('div'),res=h('div',{class:'
  const draw=()=>{const f=nf.value.toLowerCase();list.replaceChildren(...cards.filter((c,i)=>w[i].name.toLowerCase().includes(f)))};
  q.oninput=()=>{const s=q.value.toLowerCase();res.replaceChildren();if(!s)return;let n=0;w.forEach((r,i)=>r.terms.forEach(t=>{if(n<40)t.value.split('|').forEach(x=>{if(n<40&&x.toLowerCase().includes(s)){n++;res.append(h('div',{},h('a',{href:'#',on:{click:e=>{e.preventDefault();nf.value='';draw();cards[i].open=true;cards[i].scrollIntoView()}},text:r.name}),h('span',{text:'  '+x})))}})}));if(!n)res.textContent='該当なし'};
  nf.oninput=draw;
- const add=h('button',{text:'ルールを追加',on:{click:()=>{const n=prompt('ルール名');if(!n)return;const ks=(prompt('件名キーワード（| で区切る）')||'').split('|').map(s=>s.trim()).filter(Boolean);if(!ks.length)return;
-  const lab=(w.find(r=>r.result==='reject'&&!DEST[k].map[r.label])||{}).label||'興味なし（単語）';const nr={name:n,enabled:true,match:'any',terms:[{field:RX+'subjectRegex',op:'matches',value:ks.map(esc).join('|')}],result:'reject',label:lab};
-  const i=w.findIndex(r=>r.match==='always');w.splice(i<0?w.length:i,0,nr);render()}}});
- v.append(h('div',{class:'row'},q),res,h('div',{class:'row'},nf,add),list);draw()}
+ const nm=h('input',{type:'text',placeholder:'ルール名'}),mt=h('select',{},h('option',{value:'any',text:'いずれかに一致 (OR)'}),h('option',{value:'all',text:'すべてに一致 (AND)'})),ds=h('select',{},dests(k).map((d,i)=>h('option',{value:i,text:'→ '+d[0]}))),rows=h('div'),cr=[];
+ const addRow=()=>{const c=condRow();cr.push(c);rows.append(c.el)};addRow();addRow();
+ const add=h('details',{},h('summary',{text:'ルールを追加（条件を複数入れられます）'}),h('div',{class:'bd'},nm,h('div',{class:'row'},mt,ds),rows,h('div',{class:'row'},h('button',{text:'条件を増やす',on:{click:addRow}}),h('button',{class:'p',text:'作成',on:{click:()=>{
+  const terms=cr.flatMap(c=>c.get());if(!nm.value.trim()||!terms.length)return alert('ルール名と条件を入力してください');
+  const nr={name:nm.value.trim(),enabled:true,match:mt.value,terms,result:'reject',label:dests(k)[+ds.value][1]};
+  const i=w.findIndex(r=>r.match==='always');w.splice(i<0?w.length:i,0,nr);render()}}}))));
+ v.append(h('div',{class:'row'},q),res,h('div',{class:'row'},nf),add,list);draw()}
 function card(k,r,w){const d=h('details',{class:r.enabled?'':'off'}),sm=h('summary');let built=false;
  const head=()=>{sm.replaceChildren(h('b',{text:r.name}),h('small',{text:`${r.match==='always'?'常に':r.match==='all'?'AND':'OR'} / ${count(r)}語 → ${dest(k,r)}`}))};head();
  const body=h('div',{class:'bd'});
+ const ctl=()=>{const i=w.indexOf(r),al=r.match==='always',mv=d=>{const j=i+d,t=w[j];if(!t||t.match==='always')return;w.splice(i,1);w.splice(j,0,r);render()};
+  const cur=dest(k,r),sel=h('select',{},dests(k).map(x=>h('option',{value:x[1],text:'→ '+x[0],...(x[0]===cur?{selected:''}:{})})));
+  sel.onchange=()=>{r.label=sel.value;r.result='reject';head();status()};
+  return h('div',{class:'row'},h('button',{text:'名前変更',on:{click:()=>{const n=prompt('ルール名',r.name);if(n&&n.trim()){r.name=n.trim();head();status()}}}}),...(al?[]:[h('button',{text:'↑','aria-label':'上へ',on:{click:()=>mv(-1)}}),h('button',{text:'↓','aria-label':'下へ',on:{click:()=>mv(1)}}),sel]))};
+ const addCond=()=>{const c=condRow();return h('div',{class:'blk'},h('div',{class:'m',text:'条件を追加'+(r.match==='all'?'（AND）':'（OR）')}),c.el,h('button',{text:'追加',on:{click:()=>{const t=c.get();if(!t.length)return;r.terms.push(...t);head();status();build()}}}))};
  const build=()=>{body.replaceChildren();const top=h('div',{class:'row'},
   h('label',{},h('input',{type:'checkbox',...(r.enabled?{checked:''}:{}),on:{change:e=>{r.enabled=e.target.checked;d.className=r.enabled?'':'off';status()}}}),' 有効'),
-  h('button',{class:'x',text:'ルールを削除',on:{click:()=>{if(confirm(`「${r.name}」を削除しますか？`)){w.splice(w.indexOf(r),1);render()}}}}));body.append(top);
-  blocks(r).forEach(b=>body.append(blk(r,b,build,head)))};
+  h('button',{class:'x',text:'ルールを削除',on:{click:()=>{if(confirm(`「${r.name}」を削除しますか？`)){w.splice(w.indexOf(r),1);render()}}}}));body.append(top,ctl());
+  blocks(r).forEach(b=>body.append(blk(r,b,build,head)));if(r.match!=='always')body.append(addCond())};
  d.append(sm,body);d.addEventListener('toggle',()=>{if(d.open&&!built){built=true;build()}});return d}
 function blk(r,b,rebuild,head){const box=h('div',{class:'blk'}),all=kws(r,b);let lim=100,flt='',end=false;
  const t=b.t,msg=h('div',{class:'er'});
